@@ -3,6 +3,7 @@ from flask_socketio import SocketIO
 import pyautogui
 import pyperclip
 import socket
+import shutil
 import subprocess
 import sys
 import io
@@ -20,10 +21,10 @@ BASE_DIR = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
 
 app = Flask(__name__, static_folder=os.path.join(BASE_DIR, "static"))
 app.config["SECRET_KEY"] = "rc-local"
-# No async_mode specified — lets python-socketio auto-detect the threading driver.
-# Explicit async_mode="threading" causes PyInstaller to fail because the driver
-# module is loaded dynamically and not picked up by the bundler.
 socketio = SocketIO(app, cors_allowed_origins="*")
+
+INSTALL_DIR = os.path.join(os.environ.get("LOCALAPPDATA", "C:\\"), "KumuRemote")
+INSTALL_EXE = os.path.join(INSTALL_DIR, "KumuRemote.exe")
 
 
 @app.route("/")
@@ -93,15 +94,33 @@ def print_qr(url):
     sys.stdout.buffer.flush()
 
 
-def create_desktop_shortcut():
-    """Creates a desktop shortcut pointing to this exe using PowerShell COM."""
+def install_and_shortcut():
+    """
+    If running as a bundled exe from outside the install folder, copy the exe
+    to AppData\\Local\\KumuRemote\\ so it survives the original download being deleted.
+    Always (re)creates the desktop shortcut pointing to the installed path.
+    """
+    if not getattr(sys, "frozen", False):
+        # Raw Python — nothing to install
+        _create_shortcut(sys.executable)
+        return
+
+    current = os.path.abspath(sys.executable)
+    target  = os.path.abspath(INSTALL_EXE)
+
+    if current.lower() != target.lower():
+        os.makedirs(INSTALL_DIR, exist_ok=True)
+        shutil.copy2(current, target)
+        print(f"  Installed to {target}")
+
+    _create_shortcut(target)
+
+
+def _create_shortcut(exe_path):
     try:
-        exe_path = sys.executable
         work_dir = os.path.dirname(exe_path)
-        # Resolve the real Desktop folder (handles OneDrive-redirected desktops)
         desktop = subprocess.check_output(
-            ["powershell", "-Command",
-             "[Environment]::GetFolderPath('Desktop')"],
+            ["powershell", "-Command", "[Environment]::GetFolderPath('Desktop')"],
             text=True
         ).strip()
         shortcut_path = os.path.join(desktop, "KumuRemote.lnk")
@@ -121,7 +140,7 @@ def create_desktop_shortcut():
 
 
 if __name__ == "__main__":
-    create_desktop_shortcut()
+    install_and_shortcut()
 
     ip = get_local_ip()
     url = f"http://{ip}:5000"
@@ -134,4 +153,5 @@ if __name__ == "__main__":
     print("  Scan the QR code or open the URL above on your phone (same WiFi)")
     print("  Ctrl+C to stop")
     print()
-    socketio.run(app, host="0.0.0.0", port=5000, debug=False, log_output=False, use_reloader=False, allow_unsafe_werkzeug=True)
+    socketio.run(app, host="0.0.0.0", port=5000, debug=False,
+                 log_output=False, use_reloader=False, allow_unsafe_werkzeug=True)
