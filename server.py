@@ -131,4 +131,4 @@ if __name__ == "__main__":
     print("  Scan the QR code or open the URL above on your phone (same WiFi)")
     print("  Ctrl+C to stop")
     print()
-    socketio.run(app, host="0.0.0.0", port=5000, debug=False)
+    socketio.run(app, host="0.0.0.0", port=5000, debug=False, log_output=False, use_reloader=False, allow_unsafe_werkzeug=True)
