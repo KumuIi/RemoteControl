@@ -3,6 +3,7 @@ from flask_socketio import SocketIO
 import pyautogui
 import pyperclip
 import socket
+import subprocess
 import sys
 import io
 import os
@@ -16,12 +17,15 @@ BASE_DIR = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
 
 app = Flask(__name__, static_folder=os.path.join(BASE_DIR, "static"))
 app.config["SECRET_KEY"] = "rc-local"
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
+# No async_mode specified — lets python-socketio auto-detect the threading driver.
+# Explicit async_mode="threading" causes PyInstaller to fail because the driver
+# module is loaded dynamically and not picked up by the bundler.
+socketio = SocketIO(app, cors_allowed_origins="*")
 
 
 @app.route("/")
 def index():
-    return send_from_directory("static", "index.html")
+    return send_from_directory(os.path.join(BASE_DIR, "static"), "index.html")
 
 
 @socketio.on("mouse_move")
@@ -59,7 +63,6 @@ def on_type(data):
     if not text:
         return
     try:
-        # clipboard paste handles unicode; typewrite only handles ASCII
         pyperclip.copy(text)
         pyautogui.hotkey("ctrl", "v")
     except Exception:
@@ -83,16 +86,44 @@ def print_qr(url):
     qr.add_data(url)
     qr.make(fit=True)
     qr.print_ascii(out=buf, invert=True)
-    # Write encoded bytes directly — avoids closing sys.stdout.buffer
     sys.stdout.buffer.write(buf.getvalue().encode("utf-8"))
     sys.stdout.buffer.flush()
 
 
+def create_desktop_shortcut():
+    """Creates a desktop shortcut pointing to this exe using PowerShell COM."""
+    try:
+        exe_path = sys.executable
+        work_dir = os.path.dirname(exe_path)
+        # Resolve the real Desktop folder (handles OneDrive-redirected desktops)
+        desktop = subprocess.check_output(
+            ["powershell", "-Command",
+             "[Environment]::GetFolderPath('Desktop')"],
+            text=True
+        ).strip()
+        shortcut_path = os.path.join(desktop, "KumuRemote.lnk")
+        ps = (
+            f"$ws = New-Object -ComObject WScript.Shell;"
+            f"$sc = $ws.CreateShortcut('{shortcut_path}');"
+            f"$sc.TargetPath = '{exe_path}';"
+            f"$sc.WorkingDirectory = '{work_dir}';"
+            f"$sc.IconLocation = '{exe_path},0';"
+            f"$sc.Description = 'KumuRemote - PC Remote Control';"
+            f"$sc.Save()"
+        )
+        subprocess.run(["powershell", "-Command", ps], capture_output=True)
+        print("  Desktop shortcut created.")
+    except Exception as e:
+        print(f"  (Shortcut skipped: {e})")
+
+
 if __name__ == "__main__":
+    create_desktop_shortcut()
+
     ip = get_local_ip()
     url = f"http://{ip}:5000"
     print()
-    print("  PC Remote Control")
+    print("  KumuRemote")
     print("  ──────────────────────────────")
     print(f"  {url}")
     print("  ──────────────────────────────")
