@@ -7,7 +7,10 @@ import subprocess
 import sys
 import io
 import os
+import logging
 import qrcode
+
+logging.getLogger("werkzeug").setLevel(logging.ERROR)
 
 pyautogui.FAILSAFE = False
 pyautogui.PAUSE = 0
