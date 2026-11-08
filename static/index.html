@@ -128,6 +128,7 @@
     }
 
     .speed-label { font-size: 11px; color: var(--dim); white-space: nowrap; }
+    .speed-row .speed-label:first-child { min-width: 36px; } /* line up both sliders */
 
     input[type=range] {
       flex: 1;
@@ -360,6 +361,11 @@
       <input type="range" id="speed" min="0.5" max="4" step="0.1" value="1.5">
       <span class="speed-label" id="speedVal">1.5×</span>
     </div>
+    <div class="speed-row">
+      <span class="speed-label">Scroll</span>
+      <input type="range" id="scrollSpeed" min="0.2" max="5" step="0.1" value="1.5">
+      <span class="speed-label" id="scrollSpeedVal">1.5×</span>
+    </div>
     <div class="btn-row">
       <button class="btn" id="btnL">Left Click</button>
       <button class="btn" id="btnD">Double</button>
@@ -491,6 +497,26 @@
     speedVal.textContent = parseFloat(speedSlider.value).toFixed(1) + '×';
   });
 
+  // ── Scroll speed slider (remembered on this phone) ──
+  // The server passes dy straight to Windows as wheel units (120 = one notch),
+  // so scroll in fine steps and keep the fractional rest between events.
+  const SCROLL_UNITS_PER_PX = 2;   // wheel units per finger pixel at 1.0×
+  const scrollSlider = document.getElementById('scrollSpeed');
+  const scrollVal    = document.getElementById('scrollSpeedVal');
+  let scrollAcc = 0;
+  try {
+    const saved = localStorage.getItem('scrollSpeed');
+    if (saved !== null && !isNaN(parseFloat(saved))) scrollSlider.value = saved;
+  } catch (_) {}
+  function showScrollSpeed() {
+    scrollVal.textContent = parseFloat(scrollSlider.value).toFixed(1) + '×';
+  }
+  showScrollSpeed();
+  scrollSlider.addEventListener('input', () => {
+    showScrollSpeed();
+    try { localStorage.setItem('scrollSpeed', scrollSlider.value); } catch (_) {}
+  });
+
   // ── Trackpad ──
   const pad = document.getElementById('pad');
   let last = null, startPos = null, startTime = 0;
@@ -505,6 +531,7 @@
       clearTimeout(longTimer);
       longTimer = null;
       lastScrollY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+      scrollAcc = 0;
       return;
     }
     scrolling = false;
@@ -523,13 +550,15 @@
   pad.addEventListener('touchmove', e => {
     e.preventDefault();
 
-    // Two-finger scroll
+    // Two-finger scroll: add up fractional wheel units, send only whole ones
     if (scrolling && e.touches.length >= 2) {
       const cy = (e.touches[0].clientY + e.touches[1].clientY) / 2;
-      const delta = lastScrollY - cy;
-      if (Math.abs(delta) > 2) {
-        socket.emit('scroll', { dy: Math.round(delta * 0.2) });
-        lastScrollY = cy;
+      scrollAcc += (lastScrollY - cy) * SCROLL_UNITS_PER_PX * parseFloat(scrollSlider.value);
+      lastScrollY = cy;
+      const units = Math.trunc(scrollAcc);
+      if (units !== 0) {
+        socket.emit('scroll', { dy: units });
+        scrollAcc -= units;
       }
       return;
     }

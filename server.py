@@ -53,6 +53,8 @@ def on_double_click(_):
 
 @socketio.on("scroll")
 def on_scroll(data):
+    # dy is in raw Windows wheel units (120 = one notch); the phone applies
+    # the scroll-speed multiplier and only ever sends whole units.
     pyautogui.scroll(int(data["dy"]))
 
 
