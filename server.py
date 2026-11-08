@@ -10,9 +10,14 @@ import sys
 import io
 import os
 import logging
+import mimetypes
 import qrcode
 
 logging.getLogger("werkzeug").setLevel(logging.ERROR)
+
+# Windows' registry often maps .js to text/plain; serve the bundled
+# socket.io.min.js with the proper type so Safari (iPhone) runs it.
+mimetypes.add_type("text/javascript", ".js")
 
 pyautogui.FAILSAFE = False
 pyautogui.PAUSE = 0
