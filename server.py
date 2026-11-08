@@ -4,6 +4,7 @@ import pyautogui
 import pyperclip
 import socket
 import shutil
+import ctypes
 import subprocess
 import sys
 import io
@@ -25,6 +26,9 @@ socketio = SocketIO(app, cors_allowed_origins="*")
 
 INSTALL_DIR = os.path.join(os.environ.get("LOCALAPPDATA", "C:\\"), "KumuRemote")
 INSTALL_EXE = os.path.join(INSTALL_DIR, "KumuRemote.exe")
+PORT = 5000
+FIREWALL_RULE = "KumuRemote"
+ELEVATED_FLAG = "--elevated"
 
 
 @app.route("/")
@@ -94,11 +98,70 @@ def print_qr(url):
     sys.stdout.buffer.flush()
 
 
+def is_admin():
+    try:
+        return bool(ctypes.windll.shell32.IsUserAnAdmin())
+    except Exception:
+        return False
+
+
+def ensure_admin():
+    """
+    Ask for admin rights exactly once, right at startup.
+    - Already elevated (e.g. Task Scheduler "Run with highest privileges",
+      or our own relaunch) -> no prompt at all, just continue.
+    - Not elevated -> relaunch this program via UAC ("runas") and exit.
+    - UAC declined -> keep running without admin (works, but can't control
+      windows of programs that themselves run as admin).
+    """
+    if is_admin():
+        return
+    if ELEVATED_FLAG in sys.argv:
+        # We already tried once — never loop.
+        print("  (Running without admin rights)")
+        return
+
+    if getattr(sys, "frozen", False):
+        args = sys.argv[1:]
+    else:
+        args = [os.path.abspath(sys.argv[0])] + sys.argv[1:]
+    params = subprocess.list2cmdline(args + [ELEVATED_FLAG])
+
+    rc = ctypes.windll.shell32.ShellExecuteW(
+        None, "runas", sys.executable, params, os.getcwd(), 1
+    )
+    if rc > 32:
+        sys.exit(0)  # the elevated copy takes over
+    print("  (Admin rights declined — running without them)")
+
+
+def ensure_firewall_rule():
+    """
+    While elevated, allow inbound TCP on our port for this exe ourselves, so
+    Windows never pops its own firewall dialog (which would be a 2nd prompt).
+    Recreated each start so it always matches the current exe path.
+    """
+    if not is_admin():
+        return
+    flags = subprocess.CREATE_NO_WINDOW
+    subprocess.run(
+        ["netsh", "advfirewall", "firewall", "delete", "rule", f"name={FIREWALL_RULE}"],
+        capture_output=True, creationflags=flags,
+    )
+    subprocess.run(
+        ["netsh", "advfirewall", "firewall", "add", "rule", f"name={FIREWALL_RULE}",
+         "dir=in", "action=allow", "protocol=TCP", f"localport={PORT}",
+         f"program={os.path.abspath(sys.executable)}", "profile=any"],
+        capture_output=True, creationflags=flags,
+    )
+
+
 def install_and_shortcut():
     """
     If running as a bundled exe from outside the install folder, copy the exe
     to AppData\\Local\\KumuRemote\\ so it survives the original download being deleted.
-    Always (re)creates the desktop shortcut pointing to the installed path.
+    Creates the desktop shortcut only if it is missing or points elsewhere, so
+    settings you make on the shortcut are kept.
     """
     if not getattr(sys, "frozen", False):
         # Raw Python — nothing to install
@@ -109,9 +172,13 @@ def install_and_shortcut():
     target  = os.path.abspath(INSTALL_EXE)
 
     if current.lower() != target.lower():
-        os.makedirs(INSTALL_DIR, exist_ok=True)
-        shutil.copy2(current, target)
-        print(f"  Installed to {target}")
+        try:
+            os.makedirs(INSTALL_DIR, exist_ok=True)
+            shutil.copy2(current, target)
+            print(f"  Installed to {target}")
+        except OSError as e:
+            # e.g. the installed copy is currently running (autostart task)
+            print(f"  (Install skipped: {e})")
 
     _create_shortcut(target)
 
@@ -119,31 +186,34 @@ def install_and_shortcut():
 def _create_shortcut(exe_path):
     try:
         work_dir = os.path.dirname(exe_path)
-        desktop = subprocess.check_output(
-            ["powershell", "-Command", "[Environment]::GetFolderPath('Desktop')"],
-            text=True
-        ).strip()
-        shortcut_path = os.path.join(desktop, "KumuRemote.lnk")
         ps = (
-            f"$ws = New-Object -ComObject WScript.Shell;"
-            f"$sc = $ws.CreateShortcut('{shortcut_path}');"
+            "$ws = New-Object -ComObject WScript.Shell;"
+            "$p = Join-Path ([Environment]::GetFolderPath('Desktop')) 'KumuRemote.lnk';"
+            f"if ((Test-Path $p) -and ($ws.CreateShortcut($p).TargetPath -eq '{exe_path}')) {{ 'exists'; exit }};"
+            "$sc = $ws.CreateShortcut($p);"
             f"$sc.TargetPath = '{exe_path}';"
             f"$sc.WorkingDirectory = '{work_dir}';"
             f"$sc.IconLocation = '{exe_path},0';"
-            f"$sc.Description = 'KumuRemote - PC Remote Control';"
-            f"$sc.Save()"
+            "$sc.Description = 'KumuRemote - PC Remote Control';"
+            "$sc.Save(); 'created'"
         )
-        subprocess.run(["powershell", "-Command", ps], capture_output=True)
-        print("  Desktop shortcut created.")
+        out = subprocess.run(
+            ["powershell", "-NoProfile", "-Command", ps],
+            capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW,
+        ).stdout.strip()
+        if out == "created":
+            print("  Desktop shortcut created.")
     except Exception as e:
         print(f"  (Shortcut skipped: {e})")
 
 
 if __name__ == "__main__":
+    ensure_admin()          # the one and only UAC prompt (none if already admin)
+    ensure_firewall_rule()  # prevents the Windows firewall dialog
     install_and_shortcut()
 
     ip = get_local_ip()
-    url = f"http://{ip}:5000"
+    url = f"http://{ip}:{PORT}"
     print()
     print("  KumuRemote")
     print("  ──────────────────────────────")
@@ -153,5 +223,5 @@ if __name__ == "__main__":
     print("  Scan the QR code or open the URL above on your phone (same WiFi)")
     print("  Ctrl+C to stop")
     print()
-    socketio.run(app, host="0.0.0.0", port=5000, debug=False,
+    socketio.run(app, host="0.0.0.0", port=PORT, debug=False,
                  log_output=False, use_reloader=False, allow_unsafe_werkzeug=True)

@@ -24,9 +24,20 @@ Both devices must be on the **same WiFi network**. The phone opens a webpage —
 
 1. Go to [Releases](../../releases/latest)
 2. Download `KumuRemote.exe`
-3. **Right-click → Run as administrator** (needed to open the firewall port)
+3. Double-click it and accept the **one** admin prompt (UAC)
 4. Scan the QR code shown in the terminal with your phone camera
 5. Done — the remote opens in your phone's browser
+
+On first run the exe copies itself to `%LOCALAPPDATA%\KumuRemote\` and puts a shortcut on your desktop.
+
+#### Autostart at login (no prompt at all)
+Open **Task Scheduler → Create Task**:
+- **General:** tick **Run with highest privileges**
+- **Triggers:** *At log on*
+- **Actions:** start `%LOCALAPPDATA%\KumuRemote\KumuRemote.exe`
+- **Conditions:** untick *Start only if on AC power* (laptops)
+
+Because the task already runs elevated, KumuRemote detects that and skips the UAC prompt.
 
 ### Option 2 — Raw Python
 
@@ -80,9 +91,9 @@ Both devices must be on the **same WiFi network**. The phone opens a webpage —
 
 ## Notes
 
-- **Run as administrator** — required so the app can add a Windows Firewall rule for port 5000. Without it, your phone won't be able to connect.
-- The firewall rule is named `"PC Remote Control"` and only opens TCP port 5000 on your local network.
-- To remove the rule later: open Windows Firewall → Inbound Rules → delete `PC Remote Control`.
+- **Admin rights** — the exe asks once at startup (or not at all when already elevated, e.g. via Task Scheduler). Admin is needed to add the firewall rule and to control windows of programs that themselves run as administrator (many games).
+- The exe creates a firewall rule named `KumuRemote` that only allows TCP port 5000 for KumuRemote itself, so Windows never shows its own firewall dialog. (`start.bat` uses a rule named `PC Remote Control`.)
+- To remove the rule later: open Windows Firewall → Inbound Rules → delete `KumuRemote` / `PC Remote Control`.
 
 ---
 
