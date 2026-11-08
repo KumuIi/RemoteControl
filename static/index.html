@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="theme-color" content="#12121f">
   <title>PC Remote</title>
@@ -330,6 +330,44 @@
 
     .nav-btn .ico { font-size: 21px; line-height: 1; }
     .nav-btn.active { color: var(--accent); }
+
+    /* ── Connection problem banner ── */
+    .conn-info {
+      padding: 8px 16px;
+      background: #3a1621;
+      color: #ffb3c0;
+      font-size: 12px;
+      line-height: 1.4;
+      flex-shrink: 0;
+      word-break: break-word;
+    }
+
+    .conn-info[hidden] { display: none; }
+
+    /* ── iOS / Safari ── */
+    /* Safari only honours the prefixed user-select; also stop the long-press callout */
+    *, *::before, *::after {
+      -webkit-user-select: none;
+      -webkit-touch-callout: none;
+    }
+
+    /* ...but text fields must stay selectable, otherwise iOS won't let you type */
+    input, textarea {
+      -webkit-user-select: text;
+      user-select: text;
+      -webkit-touch-callout: default;
+    }
+
+    /* no double-tap zoom (iOS ignores user-scalable=no) */
+    body {
+      touch-action: manipulation;
+      padding-left: env(safe-area-inset-left);
+      padding-right: env(safe-area-inset-right);
+    }
+
+    /* keep header / tab bar clear of the notch and the home indicator */
+    .header { padding-top: calc(12px + env(safe-area-inset-top)); }
+    .nav { padding-bottom: env(safe-area-inset-bottom); }
   </style>
 </head>
 <body>
@@ -342,6 +380,7 @@
     <span id="statusText">Connecting…</span>
   </div>
 </div>
+<div class="conn-info" id="connInfo" hidden></div>
 
 <!-- Content -->
 <div class="content">
@@ -462,21 +501,74 @@
   </button>
 </div>
 
-<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<script>
+  // Phones have no console: show problems in a banner under the header (tap = reload)
+  function showProblem(msg) {
+    const box = document.getElementById('connInfo');
+    box.textContent = msg + ' — tap here to reload';
+    box.hidden = false;
+  }
+  document.getElementById('connInfo').addEventListener('click', () => location.reload());
+  window.addEventListener('error', e => {
+    showProblem('Script error: ' + e.message + (e.lineno ? ' (line ' + e.lineno + ')' : ''));
+  });
+</script>
+<!-- Served by KumuRemote itself, so the phone needs no internet access -->
+<script src="/static/socket.io.min.js"></script>
 <script>
   // ── Socket ──
-  const socket = io();
   const dot = document.getElementById('dot');
   const statusText = document.getElementById('statusText');
+  const connInfo = document.getElementById('connInfo');
+
+  // Troubleshooting: add ?transport=polling or ?transport=websocket to the URL
+  const forced = new URLSearchParams(location.search).get('transport');
+  const transports = forced === 'polling' || forced === 'websocket'
+    ? [forced] : ['polling', 'websocket'];
+
+  // If the client library is missing, keep the page usable and say why
+  const socket = window.io
+    ? io({ transports, reconnectionDelayMax: 2000 })
+    : { emit() {}, on() {}, connect() {}, connected: false };
+
+  if (!window.io) {
+    statusText.textContent = 'Error';
+    showProblem('Socket.IO client could not be loaded (/static/socket.io.min.js)');
+  }
+
+  let failedAttempts = 0;
+
+  function showConnected() {
+    const engine = socket.io && socket.io.engine;
+    const via = engine && engine.transport ? ' · ' + engine.transport.name : '';
+    dot.classList.add('on');
+    statusText.textContent = 'Connected' + via;
+  }
 
   socket.on('connect', () => {
-    dot.classList.add('on');
-    statusText.textContent = 'Connected';
+    failedAttempts = 0;
+    connInfo.hidden = true;
+    showConnected();
+    socket.io.engine.once('upgrade', showConnected); // polling → websocket
   });
 
-  socket.on('disconnect', () => {
+  socket.on('connect_error', err => {
+    failedAttempts++;
+    dot.classList.remove('on');
+    statusText.textContent = 'Retrying… (' + failedAttempts + ')';
+    showProblem('Cannot reach the PC: ' + (err && err.message ? err.message : err) +
+                '. Same WiFi? KumuRemote running?');
+  });
+
+  socket.on('disconnect', reason => {
     dot.classList.remove('on');
     statusText.textContent = 'Disconnected';
+    showProblem('Connection lost (' + reason + '). Reconnecting…');
+  });
+
+  // iOS freezes background tabs; reconnect as soon as the page is visible again
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && !socket.connected) socket.connect();
   });
 
   // ── Tab switching ──
@@ -632,6 +724,32 @@
   document.getElementById('textInput').addEventListener('keydown', e => {
     if (e.key === 'Enter') sendText();
   });
+
+  // ── iOS / Safari ──
+  // Safari ignores user-scalable=no, so block pinch-zoom explicitly
+  ['gesturestart', 'gesturechange', 'gestureend'].forEach(type => {
+    document.addEventListener(type, e => e.preventDefault(), { passive: false });
+  });
+
+  // iOS only shows :active button feedback when a touchstart listener exists
+  document.addEventListener('touchstart', () => {}, { passive: true });
+
+  // iOS cancels touches (notification, system gesture): never turn that into a click
+  pad.addEventListener('touchcancel', () => {
+    clearTimeout(longTimer);
+    longTimer = null;
+    scrolling = false;
+  });
+
+  // After the iOS keyboard closes the page can stay shifted up; snap it back
+  document.getElementById('textInput').addEventListener('blur', () => window.scrollTo(0, 0));
+
+  // 100dvh needs iOS 15.4+; on older Safari size the page from innerHeight instead
+  if (!(window.CSS && CSS.supports && CSS.supports('height', '100dvh'))) {
+    const fitHeight = () => { document.body.style.height = window.innerHeight + 'px'; };
+    fitHeight();
+    window.addEventListener('resize', fitHeight);
+  }
 </script>
 </body>
 </html>

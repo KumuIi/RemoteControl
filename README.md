@@ -94,6 +94,8 @@ Because the task already runs elevated, KumuRemote detects that and skips the UA
 - **Admin rights** — the exe asks once at startup (or not at all when already elevated, e.g. via Task Scheduler). Admin is needed to add the firewall rule and to control windows of programs that themselves run as administrator (many games).
 - The exe creates a firewall rule named `KumuRemote` that only allows TCP port 5000 for KumuRemote itself, so Windows never shows its own firewall dialog. (`start.bat` uses a rule named `PC Remote Control`.)
 - To remove the rule later: open Windows Firewall → Inbound Rules → delete `KumuRemote` / `PC Remote Control`.
+- **Connection problems:** the top-right status shows `Connected · websocket` / `Connected · polling`, and a red banner under the header explains what fails (tap it to reload). Adding `?transport=polling` to the URL forces the fallback transport.
+- **iPhone:** use Safari (or the camera QR scan, which opens Safari). Chrome/Firefox on iOS need *Settings → [browser] → Local Network* switched on, otherwise they can't reach the PC.
 
 ---
 
