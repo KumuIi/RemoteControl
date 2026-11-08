@@ -94,6 +94,7 @@ Because the task already runs elevated, KumuRemote detects that and skips the UA
 - **Admin rights** — the exe asks once at startup (or not at all when already elevated, e.g. via Task Scheduler). Admin is needed to add the firewall rule and to control windows of programs that themselves run as administrator (many games).
 - The exe creates a firewall rule named `KumuRemote` that only allows TCP port 5000 for KumuRemote itself, so Windows never shows its own firewall dialog. (`start.bat` uses a rule named `PC Remote Control`.)
 - To remove the rule later: open Windows Firewall → Inbound Rules → delete `KumuRemote` / `PC Remote Control`.
+- **Pointer without a mouse** — Windows hides the mouse pointer when no mouse is connected. KumuRemote then draws its own pointer while you move it from the phone; it fades out a few seconds after you stop and never blocks clicks or takes focus. Add `--cursor=always` to the shortcut target to draw it even when Windows shows a pointer, or `--cursor=off` to turn it off.
 
 ---
 
