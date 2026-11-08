@@ -96,6 +96,7 @@ Because the task already runs elevated, KumuRemote detects that and skips the UA
 - To remove the rule later: open Windows Firewall → Inbound Rules → delete `KumuRemote` / `PC Remote Control`.
 - **Connection problems:** the top-right status shows `Connected · websocket` / `Connected · polling`, and a red banner under the header explains what fails (tap it to reload). Adding `?transport=polling` to the URL forces the fallback transport.
 - **iPhone:** use Safari (or the camera QR scan, which opens Safari). Chrome/Firefox on iOS need *Settings → [browser] → Local Network* switched on, otherwise they can't reach the PC.
+- **Pointer without a mouse** — Windows hides the mouse pointer when no mouse is connected. KumuRemote then draws its own pointer while you move it from the phone; it fades out a few seconds after you stop and never blocks clicks or takes focus. Add `--cursor=always` to the shortcut target to draw it even when Windows shows a pointer, or `--cursor=off` to turn it off.
 
 ---
 

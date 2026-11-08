@@ -12,6 +12,7 @@ import os
 import logging
 import mimetypes
 import qrcode
+from cursor_overlay import CursorOverlay
 
 logging.getLogger("werkzeug").setLevel(logging.ERROR)
 
@@ -35,6 +36,9 @@ PORT = 5000
 FIREWALL_RULE = "KumuRemote"
 ELEVATED_FLAG = "--elevated"
 
+# Draws the pointer ourselves when Windows hides it (no mouse attached)
+cursor_overlay = CursorOverlay()
+
 
 @app.route("/")
 def index():
@@ -44,16 +48,19 @@ def index():
 @socketio.on("mouse_move")
 def on_mouse_move(data):
     pyautogui.moveRel(data["dx"], data["dy"])
+    cursor_overlay.poke()
 
 
 @socketio.on("click")
 def on_click(data):
     pyautogui.click(button=data.get("button", "left"))
+    cursor_overlay.poke()
 
 
 @socketio.on("double_click")
 def on_double_click(_):
     pyautogui.doubleClick()
+    cursor_overlay.poke()
 
 
 @socketio.on("scroll")
@@ -218,6 +225,7 @@ if __name__ == "__main__":
     ensure_admin()          # the one and only UAC prompt (none if already admin)
     ensure_firewall_rule()  # prevents the Windows firewall dialog
     install_and_shortcut()
+    cursor_overlay.start()  # --cursor=auto|always|off
 
     ip = get_local_ip()
     url = f"http://{ip}:{PORT}"
